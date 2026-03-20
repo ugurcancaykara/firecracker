@@ -127,34 +127,14 @@ impl SerialEvents for SerialEventsWrapper {
     }
 }
 
-#[derive(Debug)]
-pub enum SerialOut {
-    Sink,
-    Stdout(std::io::Stdout),
-    File(File),
-}
-impl std::io::Write for SerialOut {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        match self {
-            Self::Sink => Ok(buf.len()),
-            Self::Stdout(stdout) => stdout.write(buf),
-            Self::File(file) => file.write(buf),
-        }
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        match self {
-            Self::Sink => Ok(()),
-            Self::Stdout(stdout) => stdout.flush(),
-            Self::File(file) => file.flush(),
-        }
-    }
-}
+pub trait SerialOut: Write + Send + Debug {}
+impl<T: Send + Write + Debug> SerialOut for T {}
 
 /// Wrapper over the imported serial device.
 #[derive(Debug)]
 pub struct SerialWrapper<T: Trigger, EV: SerialEvents, I: Read + AsRawFd + Send> {
     /// Serial device object.
-    pub serial: Serial<T, EV, SerialOut>,
+    pub serial: Serial<T, EV, Box<dyn SerialOut>>,
     /// Input to the serial device (needs to be readable).
     pub input: Option<I>,
 }
@@ -230,7 +210,7 @@ impl<I: Read + AsRawFd + Send + Debug> SerialWrapper<EventFdTrigger, SerialEvent
 pub type SerialDevice = SerialWrapper<EventFdTrigger, SerialEventsWrapper, Stdin>;
 
 impl SerialDevice {
-    pub fn new(serial_in: Option<Stdin>, serial_out: SerialOut) -> Result<Self, std::io::Error> {
+    pub fn new(serial_in: Option<Stdin>, serial_out: Box<dyn SerialOut>) -> Result<Self, std::io::Error> {
         let interrupt_evt = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
         let buffer_read_event_fd = EventFdTrigger::new(EventFd::new(EFD_NONBLOCK)?);
 
@@ -411,7 +391,7 @@ mod tests {
                 SerialEventsWrapper {
                     buffer_ready_event_fd: None,
                 },
-                SerialOut::Sink,
+                Box::new(std::io::sink()),
             ),
             input: None::<std::io::Stdin>,
         };
